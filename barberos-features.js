@@ -128,6 +128,8 @@ window.filterDash = async function(period){
   else if(period==="month"){from=dateLocalISO(new Date(now.getFullYear(),now.getMonth(),1));to=dateLocalISO(new Date(now.getFullYear(),now.getMonth()+1,0));}
   else if(period==="year"){from=dateLocalISO(new Date(now.getFullYear(),0,1));to=dateLocalISO(new Date(now.getFullYear(),11,31));}
   else if(period==="custom"){from=document.getElementById("dash-from").value;to=document.getElementById("dash-to").value;if(!from||!to){document.getElementById("dash-profit-result").innerHTML="Selecione as datas.";return;}}
+  // Guardar periodo selecionado para uso na exportacao
+  if(window.S){var _pl={week:"Semana",biweek:"Quinzena",month:"Mes",year:"Ano",custom:"Periodo"};S.dashFrom=from;S.dashTo=to;S.dashPeriod=period;S.dashPeriodLabel=_pl[period]||"Periodo";}
   try{
     // Buscar TODOS agendamentos no periodo (nao apenas encerrados) para contagem
     var rAll=await db.from("appointments").select("service_price,barber_name,barber_id,status,appointment_date").gte("appointment_date",from).lte("appointment_date",to).eq("shop_id",S.shopId).neq("status","cancelled");

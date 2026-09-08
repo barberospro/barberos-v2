@@ -1084,7 +1084,7 @@ async function loadSvcs(){
   try{
     const{data,error}=await db.from('services').select('*').eq('active',true).eq('shop_id',S.shopId).order('name');
     if(error){console.error('loadSvcs error:',error);useFallbackSvcs();return;}
-    if(data&&data.length){S.svcs=data;renderSvcGrid();}
+    if(data&&data.length){S.svcs=data.map(s=>({...s,duration_minutes:Number(s.duration_minutes)>0?Number(s.duration_minutes):30}));renderSvcGrid();}
     else{S.svcs=[];renderSvcGrid();}
   }catch(e){console.error('loadSvcs exception:',e);useFallbackSvcs();}
 }
@@ -1359,7 +1359,7 @@ function renderTimes(){
   const lunchStart=shop.lunch_start?(shop.lunch_start.slice(0,5)):'';
   const lunchEnd  =shop.lunch_end  ?(shop.lunch_end.slice(0,5))  :'';
   const slotMin   =Number(shop.slot_duration)||30;
-  const totalDur  =S.cart.reduce((s,c)=>s+Number(c.duration_minutes),0)||slotMin;
+  const totalDur  =Math.max(S.cart.reduce((s,c)=>s+(Number(c.duration_minutes)||0),0),slotMin);
 
   const toMin=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;};
   const toStr=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
@@ -1483,7 +1483,7 @@ function goStepUI(step){
 function renderSummary(){
   const el=document.getElementById('bk-summary');if(!el)return;
   const total=S.cart.reduce((s,c)=>s+Number(c.price),0);
-  const dur=S.cart.reduce((s,c)=>s+Number(c.duration_minutes),0);
+  const dur=S.cart.reduce((s,c)=>s+(Number(c.duration_minutes)||0),0);
   el.innerHTML=`
     <div class="sr"><span class="srl">Servicos</span><span class="srv">${S.cart.map(c=>c.name).join(', ')}</span></div>
     <div class="sr"><span class="srl">Barbeiro</span><span class="srv">${S.selectedBarber||'—'}</span></div>
@@ -1514,7 +1514,7 @@ async function confirmPay(method){
   }
   // final conflict check
   await loadBusy();
-  const totalDur=S.cart.reduce((s,c)=>s+Number(c.duration_minutes),0)||30;
+  const totalDur=S.cart.reduce((s,c)=>s+(Number(c.duration_minutes)||0),0)||30;
   if(isConflict(S.selTime,totalDur,S.busySlots)){toast('Horario ja ocupado! Escolha outro.','err');goStep(3);return;}
   const total=S.cart.reduce((s,c)=>s+Number(c.price),0);
   const svcName=S.cart.map(c=>c.name).join(', ');
@@ -2313,7 +2313,18 @@ async function inviteClient(){
 
 
 
-async function exportDash(){try{var td=todayLocal(),mes=td.slice(0,7);var r1=await db.from("appointments").select("*").eq("appointment_date",td).eq("shop_id",S.shopId).neq("status","cancelled").order("appointment_time");var r2=await db.from("appointments").select("*").gte("appointment_date",mes+"-01").eq("shop_id",S.shopId).neq("status","cancelled").order("appointment_date");var ta=r1.data||[],ma=r2.data||[];var fV=function(v){return "R$ "+Number(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2});};var fD=function(d){return d?new Date(d+"T00:00:00").toLocaleDateString("pt-BR"):"";};var sP=function(s){return({pending:"Pendente",paid:"Pago",done:"Concluido",cancelled:"Cancelado",confirmed:"Confirmado",finished:"Encerrado"})[s]||s;};var pP=function(p){return({pix:"PIX",credito:"Cartao",local:"Local"})[p]||p||"";};
+async function exportDash(){try{var td=todayLocal(),mes=td.slice(0,7);
+// Periodo selecionado pelo proprietario (definido em filterDash). Fallback: botao ativo no DOM; ultimo fallback: mes atual.
+var _from=(S&&S.dashFrom)||null,_to=(S&&S.dashTo)||null,_ptag=(S&&S.dashPeriodLabel)||"";
+if(!_from||!_to){var _now=new Date();var _ab=document.querySelector("#dash-profit-section .fbtn.active");var _p=_ab&&_ab.id?_ab.id.replace("fd-",""):"month";
+  if(_p==="week"){_from=dateLocalISO(new Date(_now-7*86400000));_to=td;_ptag="Semana";}
+  else if(_p==="biweek"){_from=dateLocalISO(new Date(_now-14*86400000));_to=td;_ptag="Quinzena";}
+  else if(_p==="year"){_from=dateLocalISO(new Date(_now.getFullYear(),0,1));_to=dateLocalISO(new Date(_now.getFullYear(),11,31));_ptag="Ano";}
+  else if(_p==="custom"){var _cf=document.getElementById("dash-from"),_ct=document.getElementById("dash-to");_from=(_cf&&_cf.value)||(mes+"-01");_to=(_ct&&_ct.value)||td;_ptag="Periodo";}
+  else {_from=mes+"-01";_to=dateLocalISO(new Date(_now.getFullYear(),_now.getMonth()+1,0));_ptag="Mes";}
+}
+var periodoTag=(_ptag?_ptag+"_":"")+_from+"_a_"+_to;
+var r1=await db.from("appointments").select("*").eq("appointment_date",td).eq("shop_id",S.shopId).neq("status","cancelled").order("appointment_time");var r2=await db.from("appointments").select("*").gte("appointment_date",_from).lte("appointment_date",_to).eq("shop_id",S.shopId).neq("status","cancelled").order("appointment_date");var ta=r1.data||[],ma=r2.data||[];var fV=function(v){return "R$ "+Number(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2});};var fD=function(d){return d?new Date(d+"T00:00:00").toLocaleDateString("pt-BR"):"";};var sP=function(s){return({pending:"Pendente",paid:"Pago",done:"Concluido",cancelled:"Cancelado",confirmed:"Confirmado",finished:"Encerrado"})[s]||s;};var pP=function(p){return({pix:"PIX",credito:"Cartao",local:"Local"})[p]||p||"";};
 // Buscar barbeiros com comissao
 var rB=await db.from("barbers").select("id,name,commission_pct").eq("shop_id",S.shopId);var barbers=rB.data||[];var bm={};barbers.forEach(function(b){bm[b.id]={name:b.name,pct:Number(b.commission_pct)||0};});
 // Calcular comissoes do mes
@@ -2325,13 +2336,13 @@ doneAppts.forEach(function(a){var bid=a.barber_id||"sem_id";var bName=a.barber_n
 var totalComissoes=Object.values(comByBarber).reduce(function(s,b){return s+b.comissao;},0);
 var lucroLiquido=receitaMes-totalComissoes;
 // Aba Resumo
-var resumo=[{"Indicador":"Agendamentos Hoje","Valor":ta.length},{"Indicador":"Receita Hoje","Valor":fV(receitaHoje)},{"Indicador":"Agendamentos no Mes","Valor":ma.length},{"Indicador":"Atendimentos Encerrados (Mes)","Valor":doneAppts.length},{"Indicador":"Receita Bruta (Mes)","Valor":fV(receitaMes)},{"Indicador":"Total Comissoes (Mes)","Valor":fV(totalComissoes)},{"Indicador":"Lucro Liquido (Mes)","Valor":fV(lucroLiquido)}];
+var _pl2=(_ptag||"Periodo");var resumo=[{"Indicador":"Periodo","Valor":_pl2+" ("+fD(_from)+" a "+fD(_to)+")"},{"Indicador":"Agendamentos Hoje","Valor":ta.length},{"Indicador":"Receita Hoje","Valor":fV(receitaHoje)},{"Indicador":"Agendamentos ("+_pl2+")","Valor":ma.length},{"Indicador":"Atendimentos Encerrados ("+_pl2+")","Valor":doneAppts.length},{"Indicador":"Receita Bruta ("+_pl2+")","Valor":fV(receitaMes)},{"Indicador":"Total Comissoes ("+_pl2+")","Valor":fV(totalComissoes)},{"Indicador":"Lucro Liquido ("+_pl2+")","Valor":fV(lucroLiquido)}];
 // Aba Comissoes por Barbeiro
 var comRows=Object.values(comByBarber).sort(function(a,b){return b.comissao-a.comissao;}).map(function(b){return{"Barbeiro":b.nome,"Comissao (%)":b.pct+"%","Atendimentos":b.atendimentos,"Faturado":fV(b.faturado),"Comissao (R$)":fV(b.comissao),"Liquido":fV(b.faturado-b.comissao)};});
 if(comRows.length>0){comRows.push({"Barbeiro":"TOTAL","Comissao (%)":"","Atendimentos":doneAppts.length,"Faturado":fV(receitaMes),"Comissao (R$)":fV(totalComissoes),"Liquido":fV(lucroLiquido)});}
 // Aba Agendamentos detalhados
 var rows=ma.map(function(a){return{"Data":fD(a.appointment_date),"Hora":(a.appointment_time||"").slice(0,5),"Cliente":a.client_name||"","Telefone":a.client_phone||"","Servico":a.service_name||"","Barbeiro":a.barber_name||"","Valor":fV(a.service_price),"Valor Comissao":fV(Number(a.service_price||0)*(bm[a.barber_id]?bm[a.barber_id].pct:0)/100),"Valor Liquido":fV(Number(a.service_price||0)-(Number(a.service_price||0)*(bm[a.barber_id]?bm[a.barber_id].pct:0)/100)),"Pagamento":pP(a.payment_method),"Status":sP(a.status),"Ref Pacote":a.package_ref||"","Pacote":a.package_group_id?"Sim":"","Sessao":a.package_session_num||"","Total Sessoes":a.package_total_sessions||""};});
-var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(resumo),"Resumo");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(comRows),"Comissoes");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Agendamentos");XLSX.writeFile(wb,"Dashboard_BarberOS_"+mes+".xlsx");toast("Dashboard exportado!","ok");}catch(e){toast("Erro ao exportar.","err");}}
+var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(resumo),"Resumo");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(comRows),"Comissoes");XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Agendamentos");XLSX.writeFile(wb,"Dashboard_BarberOS_"+periodoTag+".xlsx");toast("Dashboard exportado!","ok");}catch(e){toast("Erro ao exportar.","err");}}
 async function exportAgenda(){try{var r=await db.from("appointments").select("*").eq("shop_id",S.shopId).order("appointment_date",{ascending:false}).order("appointment_time");var ap=r.data||[];var rB=await db.from("barbers").select("id,name,commission_pct").eq("shop_id",S.shopId);var _bm={};(rB.data||[]).forEach(function(b){_bm[b.id]={name:b.name,pct:Number(b.commission_pct)||0};});var fD=function(d){return d?new Date(d+"T00:00:00").toLocaleDateString("pt-BR"):"";};var fV=function(v){return "R$ "+Number(v||0).toLocaleString("pt-BR",{minimumFractionDigits:2});};var sP=function(s){return({pending:"Pendente",paid:"Pago",done:"Concluido",cancelled:"Cancelado",confirmed:"Confirmado",finished:"Encerrado"})[s]||s;};var pP=function(p){return({pix:"PIX",credito:"Cartao",local:"Local"})[p]||p||"";};var rows=ap.map(function(a){var pct=_bm[a.barber_id]?_bm[a.barber_id].pct:0;var val=Number(a.service_price||0);var comm=val*(pct/100);return{"Data":fD(a.appointment_date),"Hora":(a.appointment_time||"").slice(0,5),"Cliente":a.client_name||"","Telefone":a.client_phone||"","Servico":a.service_name||"","Barbeiro":a.barber_name||"","Valor":fV(val),"Valor Comissao":fV(comm),"Valor Liquido":fV(val-comm),"Pagamento":pP(a.payment_method),"Status":sP(a.status),"Ref Pacote":a.package_ref||"","Pacote":a.package_group_id?"Sim":"","Sessao":a.package_session_num||"","Total Sessoes":a.package_total_sessions||""};});var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),"Agenda");XLSX.writeFile(wb,"Agenda_BarberOS_"+todayLocal()+".xlsx");toast("Agenda exportada!","ok");}catch(e){toast("Erro ao exportar.","err");}}
 var _allClientes=[];
 var _editUID=null;
@@ -2961,9 +2972,9 @@ function pkbSlotBtn(s,slot,toMin){var tMin=toMin(s.time);var busy=s.lunch||PKB.b
 </script>
 <script>
 // Override pkbRenderTimes para respeitar horario de almoco
-function pkbRenderTimes(){var g=document.getElementById('pkb-tg');if(!g)return;var shop=(S&&S.shop)||{};var open=(shop.opening_time||'09:00').slice(0,5),close=(shop.closing_time||'20:00').slice(0,5);var lunchStart=shop.lunch_start?(shop.lunch_start.slice(0,5)):'';var lunchEnd=shop.lunch_end?(shop.lunch_end.slice(0,5)):'';var slot=Number(shop.slot_duration)||30;var toMin=function(t){var p=t.split(':').map(Number);return p[0]*60+p[1];};var toStr=function(m){return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');};var lsM=lunchStart?toMin(lunchStart):null;var leM=lunchEnd?toMin(lunchEnd):null;var cur=toMin(open),closeM=toMin(close),slots=[];while(cur+slot<=closeM){var isLunch=lsM!==null&&leM!==null&&(cur<leM&&(cur+slot)>lsM);slots.push({time:toStr(cur),lunch:isLunch});cur+=slot;}if(!slots.length){g.innerHTML='<div style="color:#9A9080;padding:10px">Sem horarios.</div>';return;}var html='';if(lsM&&leM){var manha=slots.filter(function(s){return toMin(s.time)<lsM;});var tarde=slots.filter(function(s){return toMin(s.time)>=leM;});if(manha.length)html+='<div style="grid-column:span 4;font-size:11px;font-weight:700;color:#C9A84C;letter-spacing:1px;padding:4px 0 6px;text-transform:uppercase">☀ Manhã</div>'+manha.map(function(s){return _pkbSlotBtn(s,slot,toMin);}).join('');html+='<div style="grid-column:span 4;font-size:11px;color:#9A9080;padding:6px 0 4px;display:flex;align-items:center;gap:8px"><div style="flex:1;height:1px;background:#2E2E2E"></div>🍽 Almoço '+lunchStart+'–'+lunchEnd+'<div style="flex:1;height:1px;background:#2E2E2E"></div></div>';if(tarde.length)html+='<div style="grid-column:span 4;font-size:11px;font-weight:700;color:#C9A84C;letter-spacing:1px;padding:4px 0 6px;text-transform:uppercase">🌤 Tarde</div>'+tarde.map(function(s){return _pkbSlotBtn(s,slot,toMin);}).join('');}else{html=slots.map(function(s){return _pkbSlotBtn(s,slot,toMin);}).join('');}g.innerHTML=html;}
+function pkbRenderTimes(){var g=document.getElementById('pkb-tg');if(!g)return;var shop=(S&&S.shop)||{};var open=(shop.opening_time||'09:00').slice(0,5),close=(shop.closing_time||'20:00').slice(0,5);var lunchStart=shop.lunch_start?(shop.lunch_start.slice(0,5)):'';var lunchEnd=shop.lunch_end?(shop.lunch_end.slice(0,5)):'';var slot=Number(shop.slot_duration)||30;var sessDur=Math.max(slot,(PKB.pkg&&Number(PKB.pkg.duration_minutes)>0)?Number(PKB.pkg.duration_minutes):slot);var toMin=function(t){var p=t.split(':').map(Number);return p[0]*60+p[1];};var toStr=function(m){return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');};var lsM=lunchStart?toMin(lunchStart):null;var leM=lunchEnd?toMin(lunchEnd):null;var cur=toMin(open),closeM=toMin(close),slots=[];while(cur+sessDur<=closeM){var isLunch=lsM!==null&&leM!==null&&(cur<leM&&(cur+sessDur)>lsM);slots.push({time:toStr(cur),lunch:isLunch});cur+=slot;}if(!slots.length){g.innerHTML='<div style="color:#9A9080;padding:10px">Sem horarios.</div>';return;}var html='';if(lsM&&leM){var manha=slots.filter(function(s){return toMin(s.time)<lsM;});var tarde=slots.filter(function(s){return toMin(s.time)>=leM;});if(manha.length)html+='<div style="grid-column:span 4;font-size:11px;font-weight:700;color:#C9A84C;letter-spacing:1px;padding:4px 0 6px;text-transform:uppercase">☀ Manhã</div>'+manha.map(function(s){return _pkbSlotBtn(s,sessDur,toMin);}).join('');html+='<div style="grid-column:span 4;font-size:11px;color:#9A9080;padding:6px 0 4px;display:flex;align-items:center;gap:8px"><div style="flex:1;height:1px;background:#2E2E2E"></div>🍽 Almoço '+lunchStart+'–'+lunchEnd+'<div style="flex:1;height:1px;background:#2E2E2E"></div></div>';if(tarde.length)html+='<div style="grid-column:span 4;font-size:11px;font-weight:700;color:#C9A84C;letter-spacing:1px;padding:4px 0 6px;text-transform:uppercase">🌤 Tarde</div>'+tarde.map(function(s){return _pkbSlotBtn(s,sessDur,toMin);}).join('');}else{html=slots.map(function(s){return _pkbSlotBtn(s,sessDur,toMin);}).join('');}g.innerHTML=html;}
 function _pkbSlotBtn(s,slot,toMin){var tMin=toMin(s.time);var busy=s.lunch||(PKB.busySlots||[]).some(function(b){var bMin=toMin(b.time);var bEnd=bMin+b.dur;return tMin<bEnd&&(tMin+slot)>bMin;});var sel=PKB.selTime===s.time;var lunchCls=s.lunch?' lunch':'';return'<div class="ts'+(busy?' busy':'')+(sel?' sel':'')+lunchCls+'"'+(busy?'':' data-time="'+s.time+'" onclick="pkbTimeClick(this)"')+'>'+s.time+(s.lunch?' 🍽':'')+'</div>';}
 </script>
-<script src="barberos-features.js?v=3"></script>
+<script src="barberos-features.js?v=4"></script>
 </body>
 </html>
